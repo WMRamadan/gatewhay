@@ -8,13 +8,11 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"strings"
 )
 
 // Route defines a simple routing rule
 type Route struct {
 	Host    string `json:"host"`
-	Path    string `json:"path"`
 	Backend string `json:"backend"`
 }
 
@@ -48,7 +46,7 @@ func loadConfig(filename string) error {
 // findBackend finds the backend URL for the given request
 func findBackend(r *http.Request) string {
 	for _, route := range config.Routes {
-		if r.Host == route.Host && strings.HasPrefix(r.URL.Path, route.Path) {
+		if r.Host == route.Host {
 			return route.Backend
 		}
 	}
@@ -62,7 +60,14 @@ func reverseProxy(target string) http.Handler {
 		log.Fatalf("Invalid backend URL: %s", target)
 	}
 
-	return httputil.NewSingleHostReverseProxy(targetURL)
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.Director = func(req *http.Request) {
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
+		req.URL.Path = "" // Remove original path
+		req.Host = targetURL.Host
+	}
+	return proxy
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +76,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
 	}
-	log.Printf("Routing %s%s -> %s", r.Host, r.URL.Path, backend)
+	log.Printf("Routing %s -> %s", r.Host, backend)
 	reverseProxy(backend).ServeHTTP(w, r)
 }
 
